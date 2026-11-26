@@ -33,6 +33,12 @@ npm run db:migrate                        # optional: the schema is also applied
 
 Deploy to Vercel (or any Node host) with the same two environment variables.
 
+### Troubleshooting
+
+**`ConnectionFailed("Unable to open connection to local database local.db: 14")`**: the app didn't find `TURSO_DATABASE_URL`, so it tried to create a local SQLite file, and the host wouldn't allow it. Serverless hosts like Vercel have a read-only filesystem.
+- **On Vercel:** go to Project → Settings → Environment Variables. Add `TURSO_DATABASE_URL` (`libsql://…`) and `TURSO_AUTH_TOKEN` for the environment you deploy (Production and/or Preview), then **redeploy**. Variables only apply to new deployments.
+- **Running locally:** put the values in `.env.local` in the project root, not `.env.example`. You can also leave them unset and run from a folder you can write to.
+
 ## Scripts
 
 | Command | What it does |
