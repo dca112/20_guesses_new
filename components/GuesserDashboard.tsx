@@ -259,10 +259,12 @@ function ProposeModal({
           className="input"
           autoFocus
           maxLength={nameGuess ? 100 : 280}
-          placeholder={nameGuess ? "Full name of the person" : "Is the person associated with sports?"}
+          placeholder={nameGuess ? "Full name of the person" : "Is the person male?"}
           value={content}
           onChange={(e) => setContent(e.target.value)}
+          aria-describedby={nameGuess ? undefined : "binary-tip"}
         />
+        {!nameGuess && <BinaryTip content={content} />}
         <label
           className={`flex cursor-pointer items-center justify-between gap-3 rounded-xl border px-3 py-2.5 transition ${
             nameGuess ? "border-sky-400/50 bg-sky-500/10" : "border-white/10 bg-black/20"
@@ -363,6 +365,45 @@ function Chat({ view, round, act }: { view: RoomView; round: RoundView; act: Act
           Send
         </button>
       </form>
+    </div>
+  );
+}
+
+/** Flags either/or questions such as "Male or female?" that can't be answered Yes/No. */
+export function looksNonBinary(q: string): boolean {
+  const s = q.trim().toLowerCase();
+  if (!s) return false;
+  if (/\b(male|man|boy)\b.*\bor\b.*\b(female|woman|girl)\b|\b(female|woman|girl)\b.*\bor\b.*\b(male|man|boy)\b/.test(s)) return true;
+  if (/\bor\b/.test(s) && !/\bor not\b/.test(s)) return true;
+  return /^(what|which|who|where|when|why|how)\b/.test(s);
+}
+
+/** Always-visible reminder that questions must be answerable with Yes or No. */
+function BinaryTip({ content }: { content: string }) {
+  const warn = looksNonBinary(content);
+  return (
+    <div
+      id="binary-tip"
+      className={`rounded-xl border px-3 py-2.5 text-xs ${
+        warn ? "border-amber-400/50 bg-amber-500/10 text-amber-100" : "border-white/10 bg-black/20 text-slate-300"
+      }`}
+    >
+      <div className="font-semibold text-white">
+        {warn ? "⚠️ This may not be a Yes/No question" : "💡 Ask a Yes/No question"}
+      </div>
+      <p className="mt-0.5 text-slate-400">
+        The Challenger can only answer Yes, No or Unknown, so ask about one thing at a time.
+      </p>
+      <ul className="mt-1.5 space-y-0.5">
+        <li>
+          <span className="text-emerald-300">✓</span> &ldquo;Male?&rdquo; · &ldquo;Is the person a male?&rdquo; ·
+          &ldquo;Is the gender of the person M?&rdquo;
+        </li>
+        <li>
+          <span className="text-rose-300">✗</span> &ldquo;Male or female?&rdquo; · &ldquo;What is the
+          person&apos;s gender?&rdquo;
+        </li>
+      </ul>
     </div>
   );
 }
