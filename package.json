@@ -14,12 +14,16 @@
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",
+    "canvas-confetti": "^1.9.4",
+    "howler": "^2.2.4",
     "next": "^16.4.6",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.5",
+    "@types/canvas-confetti": "^1.9.0",
+    "@types/howler": "^2.2.13",
     "@types/node": "^22.0.0",
     "@types/react": "^19.3.3",
     "@types/react-dom": "^19.2.0",

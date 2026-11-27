@@ -39,9 +39,10 @@ export default function ChallengerDashboard({ view, round, act }: { view: RoomVi
           <h2 className="section-title">Waiting on you</h2>
           {!inflight ? (
             <p className="text-sm text-slate-400">
-              The team is discussing privately. Approved questions and final guesses will appear here.
+              The team is discussing privately. Approved questions appear here for you to answer. Name Guesses are checked
+              automatically against your secret.
             </p>
-          ) : inflight.type === "question" ? (
+          ) : (
             <div>
               <div className="text-xs text-slate-400">Question from the team (proposed by {inflight.proposedByName})</div>
               <div className="mt-1 text-lg font-bold text-white">{inflight.content}</div>
@@ -69,30 +70,6 @@ export default function ChallengerDashboard({ view, round, act }: { view: RoomVi
                 </button>
               </div>
               <p className="mt-2 text-xs text-slate-500">Use Unknown only when there&apos;s no clear answer. It still costs the team a question.</p>
-            </div>
-          ) : (
-            <div>
-              <div className="text-xs text-slate-400">Final guess from the team (proposed by {inflight.proposedByName})</div>
-              <div className="mt-1 text-lg font-bold text-white">Is it {inflight.content}?</div>
-              <p className="mt-1 text-xs text-slate-500">
-                Accept spelling variations and aliases that clearly identify <span className="text-slate-300">{round.secret}</span>.
-              </p>
-              <div className="mt-4 grid grid-cols-2 gap-2">
-                <button
-                  className="btn-success py-3"
-                  disabled={busy}
-                  onClick={() => run(() => act({ type: "validate_guess", proposalId: inflight.proposalId, correct: true }))}
-                >
-                  Correct
-                </button>
-                <button
-                  className="btn-danger py-3"
-                  disabled={busy}
-                  onClick={() => run(() => act({ type: "validate_guess", proposalId: inflight.proposalId, correct: false }))}
-                >
-                  Incorrect
-                </button>
-              </div>
             </div>
           )}
         </div>

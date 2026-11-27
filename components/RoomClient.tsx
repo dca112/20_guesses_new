@@ -1,17 +1,27 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { RoundView } from "@/lib/types";
+import Celebration, { Drumroll, useCelebration } from "./Celebration";
 import ChallengerDashboard from "./ChallengerDashboard";
 import GuesserDashboard from "./GuesserDashboard";
 import Lobby from "./Lobby";
 import Results from "./Results";
 import Setup from "./Setup";
+import { loadApplause } from "./sound";
 import SpectatorView from "./SpectatorView";
 import { useRoom } from "./useRoom";
 
 export default function RoomClient({ code }: { code: string }) {
-  const { view, loadError, actionError, clearActionError, connected, act, join } = useRoom(code);
+  const { view, serverNow, loadError, actionError, clearActionError, connected, act, join } = useRoom(code);
+  const celebration = useCelebration(view?.status === "results" ? view.round : null, serverNow);
+  const roundActive = view?.round?.status === "active";
+
+  // Preload the applause while a round is running so the celebration starts instantly.
+  useEffect(() => {
+    if (roundActive) loadApplause().catch(() => {});
+  }, [roundActive]);
 
   if (loadError?.status === 404) {
     return (
@@ -40,7 +50,7 @@ export default function RoomClient({ code }: { code: string }) {
   } else if (view.status === "setup") {
     screen = <Setup view={view} round={round} act={act} />;
   } else if (view.status === "results") {
-    screen = <Results view={view} round={round} act={act} />;
+    screen = <Results view={view} round={round} act={act} onReplay={celebration.replay} />;
   } else if (round.myRole === "challenger") {
     screen = <ChallengerDashboard view={view} round={round} act={act} />;
   } else if (round.myRole === "guesser") {
@@ -68,7 +78,48 @@ export default function RoomClient({ code }: { code: string }) {
         <div className="mb-3 rounded-xl bg-rose-500/10 px-3 py-2 text-sm text-rose-300">Reconnecting…</div>
       )}
       {actionError && <ErrorToast message={actionError} onClose={clearActionError} />}
+      {round && round.status === "active" && <IncorrectGuessBanner round={round} />}
       {screen}
+      {celebration.phase === "drumroll" && <Drumroll />}
+      {celebration.phase === "open" && view.status === "results" && round?.status === "finished" && (
+        <Celebration key={celebration.replayKey} view={view} round={round} act={act} onClose={celebration.close} />
+      )}
+    </div>
+  );
+}
+
+/** Shows "Incorrect guess" on every screen when an approved Name Guess is wrong. */
+function IncorrectGuessBanner({ round }: { round: RoundView }) {
+  const seen = useRef<Set<string> | null>(null);
+  const [flash, setFlash] = useState<{ id: string; name: string } | null>(null);
+  useEffect(() => {
+    const guesses = round.history.filter((h) => h.kind === "guess");
+    if (!seen.current) {
+      // Don't replay old results after a refresh.
+      seen.current = new Set(guesses.map((g) => g.id));
+      return;
+    }
+    for (const g of guesses) {
+      if (seen.current.has(g.id)) continue;
+      seen.current.add(g.id);
+      if (g.kind === "guess" && g.correct === false) setFlash({ id: g.id, name: g.name });
+    }
+  }, [round.history]);
+  useEffect(() => {
+    if (!flash) return;
+    const t = setTimeout(() => setFlash(null), 4500);
+    return () => clearTimeout(t);
+  }, [flash]);
+  if (!flash) return null;
+  return (
+    <div
+      role="status"
+      className="celebrate-pop fixed inset-x-4 top-16 z-[70] mx-auto max-w-md rounded-2xl border border-rose-400/40 bg-rose-950/95 px-5 py-4 text-center shadow-2xl backdrop-blur"
+    >
+      <div className="text-lg font-black text-rose-200">❌ Incorrect guess</div>
+      <div className="mt-0.5 text-sm text-rose-100/80">
+        &ldquo;{flash.name}&rdquo; is not the secret person. The game continues.
+      </div>
     </div>
   );
 }

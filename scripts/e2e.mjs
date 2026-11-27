@@ -66,13 +66,17 @@ s = await neha.state(code);
 check(s.round.questionsConsumed === 4, "hint cost deducted exactly once (1 + 3)");
 check(JSON.stringify(s.round.history).includes("from India"), "hint revealed after approval");
 
-s = await neha.act(code, { type: "propose", kind: "final_guess", content: "Sachin" });
-const gid = s.round.proposals.find((p) => p.type === "final_guess" && p.status === "pending").id;
+s = await neha.act(code, { type: "propose", kind: "name_guess", content: "Sachin" });
+let gid = s.round.proposals.find((p) => p.type === "final_guess" && p.status === "pending").id;
 await host.act(code, { type: "vote", proposalId: gid, vote: "approve" });
-s = await vikram.state(code);
-await vikram.act(code, { type: "validate_guess", proposalId: s.round.inflight.proposalId, correct: true });
 s = await rahul.state(code);
-check(s.status === "results" && s.round.winner === "guessers", "team wins");
+check(s.status === "playing" && s.round.questionsConsumed === 5, "incorrect Name Guess costs 1, game continues");
+s = await neha.act(code, { type: "propose", kind: "name_guess", content: "  sachin tendulkar " });
+gid = s.round.proposals.find((p) => p.type === "final_guess" && p.status === "pending").id;
+await host.act(code, { type: "vote", proposalId: gid, vote: "approve" });
+s = await rahul.state(code);
+check(s.status === "results" && s.round.winner === "guessers", "correct Name Guess (any case/spaces) wins");
+check(s.round.questionsConsumed === 6, "correct Name Guess also consumes a question");
 check(s.round.secret === "Sachin Tendulkar", "secret revealed in results");
 
 await host.act(code, { type: "back_to_lobby" });

@@ -7,7 +7,7 @@ import { clientId, type Act } from "./useRoom";
 
 export default function GuesserDashboard({ view, round, act }: { view: RoomView; round: RoundView; act: Act }) {
   const [tab, setTab] = useState<"game" | "chat">("game");
-  const [modal, setModal] = useState<"question" | "final_guess" | null>(null);
+  const [modal, setModal] = useState<{ nameGuess: boolean } | null>(null);
   const proposals = round.proposals ?? [];
   const pending = proposals.filter((p) => p.status === "pending");
   const hintOffers = pending.filter((p) => p.type === "hint");
@@ -43,15 +43,10 @@ export default function GuesserDashboard({ view, round, act }: { view: RoomView;
 
           {round.inflight && (
             <div className="card border-amber-400/30 bg-amber-500/10">
-              <div className="text-xs font-bold uppercase tracking-widest text-amber-300">
-                {round.inflight.type === "question" ? "Waiting for the answer" : "Final guess submitted"}
-              </div>
-              <div className="mt-1 text-base font-semibold text-white">
-                {round.inflight.type === "final_guess" ? `Is it ${round.inflight.content}?` : round.inflight.content}
-              </div>
+              <div className="text-xs font-bold uppercase tracking-widest text-amber-300">Waiting for the answer</div>
+              <div className="mt-1 text-base font-semibold text-white">{round.inflight.content}</div>
               <div className="mt-1 text-xs text-amber-200/70">
-                {round.challengerName} is{" "}
-                {round.inflight.type === "question" ? "answering" : "checking"}… New proposals open once it&apos;s resolved.
+                {round.challengerName} is answering… New proposals open once it&apos;s answered.
               </div>
             </div>
           )}
@@ -64,7 +59,7 @@ export default function GuesserDashboard({ view, round, act }: { view: RoomView;
             <h2 className="section-title">Proposals</h2>
             {teamProposals.length === 0 ? (
               <p className="text-sm text-slate-500">
-                No open proposals. Discuss in the team chat, then propose a question or a final guess.
+                No open proposals. Discuss in the team chat, then propose a question or a Name Guess.
               </p>
             ) : (
               <div className="space-y-3">
@@ -80,7 +75,7 @@ export default function GuesserDashboard({ view, round, act }: { view: RoomView;
                   {closed.map((p) => (
                     <li key={p.id} className="flex justify-between gap-2 text-xs text-slate-400">
                       <span className="truncate">
-                        {p.type === "final_guess" ? "Guess: " : ""}
+                        {p.type === "final_guess" ? "Name Guess: " : ""}
                         {p.content}
                       </span>
                       <span className="shrink-0 uppercase">{p.status}</span>
@@ -101,16 +96,16 @@ export default function GuesserDashboard({ view, round, act }: { view: RoomView;
 
       <div className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-[#0b1020]/95 px-4 pb-[max(env(safe-area-inset-bottom),12px)] pt-3 backdrop-blur">
         <div className="mx-auto grid max-w-5xl grid-cols-2 gap-3">
-          <button className="btn-primary py-3" disabled={blocked} onClick={() => setModal("question")}>
+          <button className="btn-primary py-3" disabled={blocked} onClick={() => setModal({ nameGuess: false })}>
             Propose question
           </button>
-          <button className="btn-secondary py-3" disabled={blocked} onClick={() => setModal("final_guess")}>
-            Guess person
+          <button className="btn-secondary py-3" disabled={blocked} onClick={() => setModal({ nameGuess: true })}>
+            🎯 Name Guess
           </button>
         </div>
       </div>
 
-      <ProposeModal kind={modal} onClose={() => setModal(null)} act={act} round={round} />
+      <ProposeModal open={modal} onClose={() => setModal(null)} act={act} round={round} />
     </>
   );
 }
@@ -182,13 +177,15 @@ function ProposalCard({ p, act, disabled }: { p: ProposalView; act: Act; disable
   return (
     <div className="rounded-xl border border-white/10 bg-black/20 p-3">
       <div className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
-        {p.type === "final_guess" ? "Final guess" : "Proposed question"} — {p.proposedByName}
+        {p.type === "final_guess" ? "🎯 Name Guess" : "Proposed question"} — {p.proposedByName}
       </div>
       <div className="mt-1 text-base font-semibold text-white">
         {p.type === "final_guess" ? `Is it ${p.content}?` : p.content}
       </div>
       {p.type === "final_guess" && (
-        <div className="text-xs text-slate-500">Wrong guesses cost 1 question; a correct one wins the round.</div>
+        <div className="text-xs text-slate-500">
+          If approved it&apos;s checked automatically and costs 1 question. A correct name wins the round.
+        </div>
       )}
       <div className="mt-3">
         <VoteBar p={p} />
@@ -219,35 +216,41 @@ function HintOfferCard({ p, round, act }: { p: ProposalView; round: RoundView; a
 }
 
 function ProposeModal({
-  kind,
+  open,
   onClose,
   act,
   round,
 }: {
-  kind: "question" | "final_guess" | null;
+  open: { nameGuess: boolean } | null;
   onClose: () => void;
   act: Act;
   round: RoundView;
 }) {
   const [content, setContent] = useState("");
+  const [nameGuess, setNameGuess] = useState(false);
   const [busy, setBusy] = useState(false);
   const idRef = useRef(clientId());
   useEffect(() => {
-    if (kind) {
+    if (open) {
       setContent("");
+      setNameGuess(open.nameGuess);
       idRef.current = clientId();
     }
-  }, [kind]);
-  const isGuess = kind === "final_guess";
+  }, [open]);
   return (
-    <Modal open={!!kind} onClose={onClose} title={isGuess ? "Guess the person" : "Propose a question"}>
+    <Modal open={!!open} onClose={onClose} title={nameGuess ? "Propose a Name Guess" : "Propose a question"}>
       <form
         className="space-y-3"
         onSubmit={async (e) => {
           e.preventDefault();
-          if (!content.trim() || !kind) return;
+          if (!content.trim()) return;
           setBusy(true);
-          const ok = await act({ type: "propose", kind, content, clientId: idRef.current });
+          const ok = await act({
+            type: "propose",
+            kind: nameGuess ? "final_guess" : "question",
+            content,
+            clientId: idRef.current,
+          });
           setBusy(false);
           if (ok) onClose();
         }}
@@ -255,20 +258,42 @@ function ProposeModal({
         <input
           className="input"
           autoFocus
-          maxLength={isGuess ? 100 : 280}
-          placeholder={isGuess ? "Full name of the person" : "Is the person associated with sports?"}
+          maxLength={nameGuess ? 100 : 280}
+          placeholder={nameGuess ? "Full name of the person" : "Is the person associated with sports?"}
           value={content}
           onChange={(e) => setContent(e.target.value)}
         />
+        <label
+          className={`flex cursor-pointer items-center justify-between gap-3 rounded-xl border px-3 py-2.5 transition ${
+            nameGuess ? "border-sky-400/50 bg-sky-500/10" : "border-white/10 bg-black/20"
+          }`}
+        >
+          <span>
+            <span className="block text-sm font-semibold text-white">🎯 This is a Name Guess</span>
+            <span className="block text-xs text-slate-400">We think we know who it is</span>
+          </span>
+          <span className="relative inline-flex shrink-0 items-center">
+            <input
+              type="checkbox"
+              role="switch"
+              aria-label="Name Guess"
+              className="peer sr-only"
+              checked={nameGuess}
+              onChange={(e) => setNameGuess(e.target.checked)}
+            />
+            <span className="h-6 w-11 rounded-full bg-white/15 transition peer-checked:bg-sky-500" />
+            <span className="absolute left-0.5 h-5 w-5 rounded-full bg-white shadow transition peer-checked:translate-x-5" />
+          </span>
+        </label>
         <p className="text-xs text-slate-400">
           Proposing is free and counts as your Approve vote. It needs {round.requiredVotes} of {round.guesserIds.length}{" "}
           approvals.{" "}
-          {isGuess
-            ? "If approved, the Challenger checks it: correct wins, wrong costs 1 question."
+          {nameGuess
+            ? "If approved, the name is checked against the secret automatically (ignoring capitals and extra spaces) and costs 1 question. Correct wins the round."
             : "If approved, it's sent to the Challenger and costs 1 question."}
         </p>
         <button className="btn-primary w-full py-3" disabled={!content.trim() || busy}>
-          {busy ? "Proposing…" : isGuess ? "Propose guess" : "Propose question"}
+          {busy ? "Proposing…" : nameGuess ? "Propose Name Guess" : "Propose question"}
         </button>
       </form>
     </Modal>

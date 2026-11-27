@@ -81,12 +81,21 @@ components/    Lobby, Setup, GuesserDashboard, ChallengerDashboard, Results, Spe
   - A partial unique index allows only one approved, unresolved action per round.
   - `CHECK (questions_consumed BETWEEN 0 AND 20)` bounds the counter.
   - Conditional updates (`WHERE status = 'pending'`, `WHERE answer IS NULL`) and `clientId` de-duplication mean a repeated or concurrent request cannot run an action twice or charge the budget twice.
+- **Name Guesses.** A Guesser turns on the *Name Guess* toggle when proposing. It's voted on like a regular question. Once approved, the server compares the name to the secret (case-insensitive, ignoring leading and trailing spaces) with no Challenger input. Every approved Name Guess costs 1 question:
+  - **Correct:** the team wins at once, even if it used the 20th question.
+  - **Incorrect:** every screen shows "Incorrect guess" and the game continues.
 - **Budget.**
   - An approved question costs 1 as soon as it is submitted.
   - An approved hint costs its stated price and is revealed once.
-  - A wrong final guess costs 1; a correct one ends the round.
   - Any action that would exceed the remaining budget is rejected on the server.
-  - When the budget is used up, the round ends once the in-flight question has been answered. Every pending proposal is closed when a round ends.
+  - A round ends normally in only two ways: a correct Name Guess (the Guessing Team wins), or all 20 questions used (the Challenger wins). If the last question is still waiting for an answer, the round ends once it's answered. Every pending proposal is closed when a round ends.
+- **Winner celebration.** Every participant, including the Challenger, sees it automatically once per round:
+  - a full-screen overlay with confetti ([canvas-confetti](https://www.npmjs.com/package/canvas-confetti));
+  - recorded crowd applause played with [Howler.js](https://howlerjs.com);
+  - "Guessing Team Wins!" or "Challenger Wins!", the secret name and the total questions used (including hints);
+  - a **Play Again** button.
+
+  To make it appear on every screen at once, clients start it at the same moment on the server's clock: round end + 2 s. Until then each screen shows a short drumroll, so nobody sees the result early. Sound credit: [`public/sounds/CREDITS.md`](public/sounds/CREDITS.md).
 - **Rounds.**
   - The guessers are fixed when a round starts.
   - The host can abort a stalled round. If the host has been offline for 60 seconds, another player can take over as host.
