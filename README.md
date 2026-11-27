@@ -1,6 +1,6 @@
 # 20 Guesses
 
-A collaborative, mobile-first multiplayer guessing game. One player (the Challenger) secretly picks a person; everyone else (the Guessers) discusses privately, proposes yes/no questions, votes, buys hints and submits final guesses, all from a shared budget of 20 questions.
+A collaborative, mobile-first multiplayer guessing game. One player (the Challenger) secretly picks a person; everyone else (the Guessers) discusses privately, proposes yes/no questions, votes, buys hints and makes Name Guesses, all from a shared budget of 20 questions.
 
 The product spec is in [`20-guesses-prd.md`](./20-guesses-prd.md).
 
@@ -70,7 +70,7 @@ components/    Lobby, Setup, GuesserDashboard, ChallengerDashboard, Results, Spe
 
 ### How the PRD rules are enforced
 
-- **The server decides everything.** Clients send intents such as `propose`, `vote`, `offer_hint`, `answer_question` and `validate_guess`. Each one runs in a single `BEGIN IMMEDIATE` transaction that re-reads the current state first.
+- **The server decides everything.** Clients send intents such as `propose`, `vote`, `offer_hint` and `answer_question`. Each one runs in a single `BEGIN IMMEDIATE` transaction that re-reads the current state first.
 - **Role-filtered views.** `getRoomView` builds a separate payload for each role:
   - The secret, private chat, pending proposals, votes and unaccepted hint text are left out for roles that may not see them. They are never sent to the browser.
   - The Challenger gets their own hint offers, but no voting activity.

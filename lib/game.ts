@@ -792,7 +792,7 @@ export async function getRoomView(sessionId: string, rawCode: string): Promise<R
   const proposalById = new Map(proposals.map((p) => [p.id, p]));
   const proposer = (proposalId: string) => nameOf.get(proposalById.get(proposalId)?.proposed_by ?? "") ?? "Unknown";
 
-  // Public history: submitted questions, revealed hints, submitted final guesses.
+  // Public history: submitted questions, revealed hints, Name Guesses.
   const history: HistoryItem[] = [];
   questions.forEach((q, i) =>
     history.push({
