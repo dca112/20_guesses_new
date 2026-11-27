@@ -85,16 +85,16 @@ export function History({ items, emptyText = "No questions asked yet." }: { item
               {item.kind === "guess" && (
                 <>
                   <div className="min-w-0">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-sky-300">Final guess</div>
+                    <div className="text-xs font-semibold uppercase tracking-wide text-sky-300">🎯 Name Guess</div>
                     <div className="text-sm text-white">{item.name}</div>
                     <div className="text-xs text-slate-500">by {item.proposedBy}</div>
                   </div>
                   {item.correct === null ? (
                     <AnswerBadge answer={null} />
                   ) : item.correct ? (
-                    <span className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-xs font-bold text-emerald-300">Correct</span>
+                    <span className="shrink-0 rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-xs font-bold text-emerald-300">Correct!</span>
                   ) : (
-                    <span className="rounded-full bg-rose-500/15 px-2.5 py-0.5 text-xs font-bold text-rose-300">Wrong</span>
+                    <span className="shrink-0 rounded-full bg-rose-500/15 px-2.5 py-0.5 text-xs font-bold text-rose-300">Incorrect guess</span>
                   )}
                 </>
               )}
