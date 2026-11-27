@@ -1,4 +1,3 @@
-yaml
 name: Manual Sync
 
 on:
@@ -18,8 +17,8 @@ jobs:
       - name: Sync from original repo
         run: |
           git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@://github.com"
-          git remote add upstream https://github.com/prabhatlnct2008/20_guesses
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com
           git fetch upstream
           git merge upstream/main --no-edit
           git push origin main
