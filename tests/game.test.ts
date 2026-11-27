@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, beforeEach, describe, it } from "node:test";
 import { setDbForTests } from "../lib/db";
-import { createRoom, GameError, getRoomView, joinRoom, performAction, requiredVotes } from "../lib/game";
+import { createRoom, GameError, getRoomView, joinRoom, namesMatch, performAction, requiredVotes } from "../lib/game";
 import type { GameAction, ProposalView } from "../lib/types";
 
 let dir: string;
@@ -278,30 +278,75 @@ describe("hints", () => {
   });
 });
 
-describe("final guesses and round end", () => {
-  it("incorrect guess costs one; correct guess wins and closes pending proposals", async () => {
+describe("name guesses and round end", () => {
+  async function approveNameGuess(code: string, name: string, proposer = "g1", voter = "h") {
+    await act(proposer, code, { type: "propose", kind: "name_guess", content: name });
+    const p = (await pendingOf(proposer, code)).find((x) => x.type === "final_guess");
+    if (p) await act(voter, code, { type: "vote", proposalId: p.id, vote: "approve" });
+  }
+
+  it("matches names case-insensitively, ignoring leading/trailing spaces", () => {
+    assert.ok(namesMatch("  sachin TENDULKAR ", "Sachin Tendulkar"));
+    assert.ok(!namesMatch("Sachin", "Sachin Tendulkar"));
+  });
+
+  it("a Name Guess needs a majority like any question", async () => {
+    const code = await setup(); // 3 guessers → 2 required
+    await act("g1", code, { type: "propose", kind: "name_guess", content: "Sachin Tendulkar" });
+    let v = await view("g1", code);
+    assert.equal(v.status, "playing", "one approval is not enough");
+    const [p] = await pendingOf("g1", code);
+    await act("g2", code, { type: "vote", proposalId: p.id, vote: "reject" });
+    await act("h", code, { type: "vote", proposalId: p.id, vote: "reject" });
+    v = await view("g1", code);
+    assert.equal(v.status, "playing");
+    assert.equal(v.round!.questionsConsumed, 0, "rejected guesses cost nothing");
+  });
+
+  it("an incorrect Name Guess costs one question and the game continues", async () => {
     const code = await setup(["h", "g1"]);
-    await act("g1", code, { type: "propose", kind: "final_guess", content: "Virat Kohli" });
-    let [p] = await pendingOf("g1", code);
-    await act("h", code, { type: "vote", proposalId: p.id, vote: "approve" });
-    assert.equal(await consumed(code), 0, "final guess consumes nothing until validated");
-    let c = (await view("c", code)).round!;
-    await act("c", code, { type: "validate_guess", proposalId: c.inflight!.proposalId, correct: false });
-    assert.equal(await consumed(code), 1);
+    await approveNameGuess(code, "Virat Kohli");
+    const v = await view("c", code);
+    assert.equal(v.status, "playing");
+    assert.equal(v.round!.questionsConsumed, 1);
+    assert.equal(v.round!.inflight, null, "no Challenger action needed");
+    const g = v.round!.history.find((h) => h.kind === "guess");
+    assert.ok(g && g.kind === "guess" && g.correct === false);
+  });
 
+  it("a correct Name Guess is checked automatically, costs one question, wins and closes pending proposals", async () => {
+    const code = await setup(["h", "g1"]);
     await act("c", code, { type: "offer_hint", category: "Era", text: "1990s", cost: 1 });
-    await act("g1", code, { type: "propose", kind: "final_guess", content: "Sachin" });
-    [p] = (await pendingOf("g1", code)).filter((x) => x.type === "final_guess");
-    await act("h", code, { type: "vote", proposalId: p.id, vote: "approve" });
-    c = (await view("c", code)).round!;
-    await act("c", code, { type: "validate_guess", proposalId: c.inflight!.proposalId, correct: true });
+    await approveNameGuess(code, "  sachin tendulkar ");
+    for (const sid of ["c", "h", "g1"]) {
+      const v = await view(sid, code);
+      assert.equal(v.status, "results", `${sid} sees results`);
+      assert.equal(v.round!.winner, "guessers");
+      assert.equal(v.round!.secret, "Sachin Tendulkar", "correct name shown to everyone");
+      assert.equal(v.round!.questionsConsumed, 1);
+      assert.ok(v.round!.endedAt);
+    }
+    const g = (await view("g1", code)).round!;
+    assert.equal(g.proposals!.filter((x) => x.status === "pending").length, 0);
+  });
 
+  it("a correct Name Guess on the 20th question still wins", async () => {
+    const code = await setup(["h", "g1"]);
+    await client.execute("UPDATE rounds SET questions_consumed = 19");
+    await approveNameGuess(code, "Sachin Tendulkar");
+    const v = await view("c", code);
+    assert.equal(v.round!.questionsConsumed, 20);
+    assert.equal(v.round!.winner, "guessers");
+  });
+
+  it("an incorrect Name Guess on the 20th question makes the Challenger win", async () => {
+    const code = await setup(["h", "g1"]);
+    await client.execute("UPDATE rounds SET questions_consumed = 19");
+    await approveNameGuess(code, "Someone Else");
     const v = await view("g1", code);
     assert.equal(v.status, "results");
-    assert.equal(v.round!.winner, "guessers");
-    assert.equal(v.round!.secret, "Sachin Tendulkar", "secret revealed at the end");
-    assert.equal(v.round!.questionsConsumed, 1);
-    assert.equal(v.round!.proposals!.filter((x) => x.status === "pending").length, 0);
+    assert.equal(v.round!.questionsConsumed, 20);
+    assert.equal(v.round!.winner, "challenger");
   });
 
   it("exhausting the budget ends the round after the in-flight question is answered", async () => {
@@ -311,28 +356,21 @@ describe("final guesses and round end", () => {
     let v = await view("c", code);
     assert.equal(v.round!.questionsConsumed, 20);
     assert.equal(v.status, "playing", "still waiting for the answer");
-    await expectError(act("h", code, { type: "propose", kind: "final_guess", content: "x" }), 409);
+    await expectError(act("h", code, { type: "propose", kind: "name_guess", content: "x" }), 409);
     await act("c", code, { type: "answer_question", proposalId: v.round!.inflight!.proposalId, answer: "no" });
     v = await view("h", code);
     assert.equal(v.status, "results");
     assert.equal(v.round!.winner, "challenger");
   });
 
-  it("a final guess needs at least one remaining question", async () => {
-    const code = await setup(["h", "g1"]);
-    await act("c", code, { type: "offer_hint", category: "Era", text: "x", cost: 19 });
+  it("a hint that uses the last questions ends the round for the Challenger", async () => {
+    const code = await setup(["h"]);
+    await act("c", code, { type: "offer_hint", category: "Era", text: "x", cost: 20 });
     const [hint] = await pendingOf("h", code);
     await act("h", code, { type: "vote", proposalId: hint.id, vote: "approve" });
-    await act("g1", code, { type: "vote", proposalId: hint.id, vote: "approve" });
-    await act("h", code, { type: "propose", kind: "final_guess", content: "Someone" });
-    await act("c", code, { type: "offer_hint", category: "x", text: "y", cost: 1 }).catch(() => undefined);
-    const [p] = (await pendingOf("h", code)).filter((x) => x.type === "final_guess");
-    await act("g1", code, { type: "vote", proposalId: p.id, vote: "approve" });
-    const c = (await view("c", code)).round!;
-    await act("c", code, { type: "validate_guess", proposalId: c.inflight!.proposalId, correct: false });
     const v = await view("h", code);
-    assert.equal(v.round!.questionsConsumed, 20);
     assert.equal(v.round!.winner, "challenger");
+    assert.equal(v.round!.questionsConsumed, 20);
   });
 });
 
@@ -359,9 +397,7 @@ describe("host controls and next round", () => {
 
   it("results → lobby → next round", async () => {
     const code = await setup(["h"]);
-    await act("h", code, { type: "propose", kind: "final_guess", content: "Sachin Tendulkar" });
-    const c = (await view("c", code)).round!;
-    await act("c", code, { type: "validate_guess", proposalId: c.inflight!.proposalId, correct: true });
+    await act("h", code, { type: "propose", kind: "name_guess", content: "Sachin Tendulkar" });
     await expectError(act("c", code, { type: "back_to_lobby" }), 403);
     await act("h", code, { type: "back_to_lobby" });
     const v = await view("h", code);

@@ -17,7 +17,7 @@ export default function SpectatorView({ view, round, act }: { view: RoomView; ro
         <div className="card text-sm text-slate-300">
           Waiting on {round.challengerName}:{" "}
           <span className="font-semibold text-white">
-            {round.inflight.type === "final_guess" ? `Is it ${round.inflight.content}?` : round.inflight.content}
+            {round.inflight.content}
           </span>
         </div>
       )}

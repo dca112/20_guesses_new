@@ -89,7 +89,7 @@ export interface HintOfferView {
 
 export interface InflightView {
   proposalId: string;
-  type: "question" | "final_guess";
+  type: "question";
   content: string;
   proposedByName: string;
 }
@@ -104,6 +104,8 @@ export interface RoundView {
   maxQuestions: number;
   remaining: number;
   winner: Winner | null;
+  /** Server timestamp (ms) when the round ended; null while in progress. */
+  endedAt: number | null;
   myRole: RoundRole;
   guesserIds: string[];
   requiredVotes: number;
@@ -146,12 +148,12 @@ export type GameAction =
   | { type: "cancel_setup" }
   | { type: "start_round"; secretName: string }
   | { type: "send_message"; content: string; clientId?: string }
-  | { type: "propose"; kind: "question" | "final_guess"; content: string; clientId?: string }
+  /** kind "final_guess" (alias "name_guess") is a Name Guess, auto-checked against the secret. */
+  | { type: "propose"; kind: "question" | "final_guess" | "name_guess"; content: string; clientId?: string }
   | { type: "vote"; proposalId: string; vote: "approve" | "reject" }
   | { type: "offer_hint"; category: string; text: string; cost: number; clientId?: string }
   | { type: "withdraw_hint"; proposalId: string }
   | { type: "answer_question"; proposalId: string; answer: Answer }
-  | { type: "validate_guess"; proposalId: string; correct: boolean }
   | { type: "abort_round" }
   | { type: "back_to_lobby" }
   | { type: "claim_host" };

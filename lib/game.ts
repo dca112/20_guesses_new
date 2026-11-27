@@ -71,6 +71,7 @@ interface RoundRow {
   questions_consumed: number;
   winner: string | null;
   created_at: number;
+  ended_at: number | null;
 }
 interface ProposalRow {
   id: string;
@@ -342,26 +343,51 @@ async function evaluateProposal(c: Ctx, proposalId: string): Promise<void> {
     return;
   }
 
+  if (p.type === "final_guess") {
+    // Name Guess: checked automatically against the secret, resolved at once,
+    // and always consumes one question (correct or not).
+    const ok = await run(
+      c.tx,
+      "UPDATE proposals SET status = 'resolved', resolved_at = ? WHERE id = ? AND status = 'pending'",
+      [t, p.id],
+    );
+    if (!ok) return;
+    const secret = await one<{ secret_name: string }>(c.tx, "SELECT secret_name FROM round_secrets WHERE round_id = ?", [
+      round.id,
+    ]);
+    const correct = !!secret && namesMatch(p.content, secret.secret_name);
+    await run(
+      c.tx,
+      `INSERT INTO guesses (id, proposal_id, round_id, guessed_name, is_correct, submitted_at, resolved_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [uid(), p.id, round.id, p.content, correct ? 1 : 0, t, t],
+    );
+    await run(c.tx, "UPDATE rounds SET questions_consumed = questions_consumed + 1 WHERE id = ?", [round.id]);
+    await closePending(c.tx, round.id, p.id, t);
+    // A correct guess wins even when it uses the 20th question.
+    if (correct) await finishRound(c, round.id, "guessers");
+    else if (round.questions_consumed + 1 >= MAX_QUESTIONS) await finishRound(c, round.id, "challenger");
+    return;
+  }
+
+  // Regular question: submitted to the Challenger, who must answer it.
   const ok = await run(c.tx, "UPDATE proposals SET status = 'approved' WHERE id = ? AND status = 'pending'", [p.id]);
   if (!ok) return;
   await closePending(c.tx, round.id, p.id, t);
-  if (p.type === "question") {
-    await run(c.tx, "INSERT INTO questions (id, proposal_id, round_id, question, asked_at) VALUES (?, ?, ?, ?, ?)", [
-      uid(),
-      p.id,
-      round.id,
-      p.content,
-      t,
-    ]);
-    // An approved question consumes one question the moment it is submitted.
-    await run(c.tx, "UPDATE rounds SET questions_consumed = questions_consumed + 1 WHERE id = ?", [round.id]);
-  } else {
-    await run(
-      c.tx,
-      "INSERT INTO guesses (id, proposal_id, round_id, guessed_name, submitted_at) VALUES (?, ?, ?, ?, ?)",
-      [uid(), p.id, round.id, p.content, t],
-    );
-  }
+  await run(c.tx, "INSERT INTO questions (id, proposal_id, round_id, question, asked_at) VALUES (?, ?, ?, ?, ?)", [
+    uid(),
+    p.id,
+    round.id,
+    p.content,
+    t,
+  ]);
+  // An approved question consumes one question the moment it is submitted.
+  await run(c.tx, "UPDATE rounds SET questions_consumed = questions_consumed + 1 WHERE id = ?", [round.id]);
+}
+
+/** Case-insensitive comparison that ignores leading and trailing spaces. */
+export function namesMatch(guess: string, secret: string): boolean {
+  return guess.trim().toLocaleLowerCase() === secret.trim().toLocaleLowerCase();
 }
 
 async function castVote(c: Ctx, proposalId: string, playerId: string, vote: "approve" | "reject"): Promise<boolean> {
@@ -477,10 +503,12 @@ async function dispatch(c: Ctx, a: GameAction): Promise<void> {
 
     case "propose": {
       const round = requireGuesser(c);
-      const kind = a.kind === "final_guess" ? "final_guess" : a.kind === "question" ? "question" : null;
+      const raw = a.kind as string;
+      const kind =
+        raw === "final_guess" || raw === "name_guess" ? "final_guess" : raw === "question" ? "question" : null;
       if (!kind) throw new GameError(400, "Unknown proposal type");
       const content =
-        kind === "question" ? text(a.content, "Question", 280) : text(a.content, "Guessed name", 100);
+        kind === "question" ? text(a.content, "Question", 280) : text(a.content, "Name Guess", 100);
       const clientId = optionalClientId(a.clientId);
       if (clientId) {
         const dup = await one(tx, "SELECT 1 FROM proposals WHERE round_id = ? AND proposed_by = ? AND client_id = ?", [
@@ -584,33 +612,6 @@ async function dispatch(c: Ctx, a: GameAction): Promise<void> {
         t,
         p.id,
       ]);
-      const fresh = await freshRound(tx, round.id);
-      if (fresh.questions_consumed >= MAX_QUESTIONS) await finishRound(c, round.id, "challenger");
-      return;
-    }
-
-    case "validate_guess": {
-      const round = requireChallenger(c);
-      const p = await inflightProposal(tx, round.id);
-      if (!p || p.type !== "final_guess" || p.id !== a.proposalId) {
-        throw new GameError(409, "There is no final guess waiting for validation");
-      }
-      const correct = a.correct === true;
-      const ok = await run(
-        tx,
-        "UPDATE guesses SET is_correct = ?, resolved_at = ? WHERE proposal_id = ? AND is_correct IS NULL",
-        [correct ? 1 : 0, t, p.id],
-      );
-      if (!ok) throw new GameError(409, "Already validated");
-      await run(tx, "UPDATE proposals SET status = 'resolved', resolved_at = ? WHERE id = ? AND status = 'approved'", [
-        t,
-        p.id,
-      ]);
-      if (correct) {
-        await finishRound(c, round.id, "guessers");
-        return;
-      }
-      await run(tx, "UPDATE rounds SET questions_consumed = questions_consumed + 1 WHERE id = ?", [round.id]);
       const fresh = await freshRound(tx, round.id);
       if (fresh.questions_consumed >= MAX_QUESTIONS) await finishRound(c, round.id, "challenger");
       return;
@@ -791,7 +792,7 @@ export async function getRoomView(sessionId: string, rawCode: string): Promise<R
   const proposalById = new Map(proposals.map((p) => [p.id, p]));
   const proposer = (proposalId: string) => nameOf.get(proposalById.get(proposalId)?.proposed_by ?? "") ?? "Unknown";
 
-  // Public history: submitted questions, revealed hints, submitted final guesses.
+  // Public history: submitted questions, revealed hints, Name Guesses.
   const history: HistoryItem[] = [];
   questions.forEach((q, i) =>
     history.push({
@@ -820,7 +821,7 @@ export async function getRoomView(sessionId: string, rawCode: string): Promise<R
   }
   history.sort((a, b) => a.at - b.at);
 
-  const inflightRow = proposals.find((p) => p.status === "approved" && p.type !== "hint");
+  const inflightRow = proposals.find((p) => p.status === "approved" && p.type === "question");
   const inflight: InflightView | null = inflightRow
     ? {
         proposalId: inflightRow.id,
@@ -840,6 +841,7 @@ export async function getRoomView(sessionId: string, rawCode: string): Promise<R
     maxQuestions: MAX_QUESTIONS,
     remaining: MAX_QUESTIONS - round.questions_consumed,
     winner: round.winner as RoundView["winner"],
+    endedAt: round.ended_at ?? null,
     myRole,
     guesserIds,
     requiredVotes: requiredVotes(guesserIds.length),

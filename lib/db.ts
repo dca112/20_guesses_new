@@ -15,9 +15,38 @@ type DbGlobal = {
 const g = globalThis as unknown as { __twentyGuessesDb?: DbGlobal };
 const state: DbGlobal = (g.__twentyGuessesDb ??= {});
 
+/** Reads an env var, tolerating surrounding whitespace or quotes pasted into dashboards. */
+function env(...names: string[]): string | undefined {
+  for (const name of names) {
+    const v = process.env[name]?.trim().replace(/^["']|["']$/g, "").trim();
+    if (v) return v;
+  }
+  return undefined;
+}
+
+export class DatabaseConfigError extends Error {}
+
 function makeClient(): Client {
-  const url = process.env.TURSO_DATABASE_URL || "file:local.db";
-  return createClient({ url, authToken: process.env.TURSO_AUTH_TOKEN || undefined });
+  const url = env("TURSO_DATABASE_URL", "TURSO_URL", "LIBSQL_URL", "DATABASE_URL");
+  const authToken = env("TURSO_AUTH_TOKEN", "TURSO_TOKEN", "LIBSQL_AUTH_TOKEN", "DATABASE_AUTH_TOKEN");
+
+  if (url) {
+    if (!url.startsWith("file:") && !authToken) {
+      console.warn("[db] TURSO_DATABASE_URL is set but TURSO_AUTH_TOKEN is missing; remote connections will likely fail.");
+    }
+    return createClient({ url, authToken });
+  }
+
+  // No remote database configured: fall back to a local SQLite file.
+  // Serverless hosts (Vercel, Netlify, AWS Lambda) have read-only, per-instance
+  // filesystems, so a local file can't work there — fail with a clear message.
+  if (process.env.VERCEL || process.env.NETLIFY || process.env.AWS_LAMBDA_FUNCTION_NAME) {
+    throw new DatabaseConfigError(
+      "TURSO_DATABASE_URL is not set. Add TURSO_DATABASE_URL and TURSO_AUTH_TOKEN to your hosting " +
+        "environment variables (for the environment you deployed, e.g. Production) and redeploy.",
+    );
+  }
+  return createClient({ url: "file:local.db" });
 }
 
 export async function migrate(client: Client): Promise<void> {

@@ -17,8 +17,10 @@ export function useRoom(code: string) {
   const [actionError, setActionError] = useState<string | null>(null);
   const [connected, setConnected] = useState(true);
   const versionRef = useRef(-1);
+  const clockOffset = useRef(0);
 
   const accept = useCallback((next: RoomView) => {
+    clockOffset.current = next.serverTime - Date.now();
     if (next.version < versionRef.current) return;
     versionRef.current = next.version;
     setView(next);
@@ -105,7 +107,10 @@ export function useRoom(code: string) {
     [code, accept],
   );
 
-  return { view, loadError, actionError, clearActionError: () => setActionError(null), connected, act, join, refresh };
+  /** Current time on the server's clock (used to sync the celebration across screens). */
+  const serverNow = useCallback(() => Date.now() + clockOffset.current, []);
+
+  return { view, serverNow, loadError, actionError, clearActionError: () => setActionError(null), connected, act, join, refresh };
 }
 
 export type Act = (action: GameAction) => Promise<boolean>;
